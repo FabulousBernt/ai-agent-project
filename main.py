@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -53,25 +54,38 @@ def main():
     All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
     """
 
-    response = client.models.generate_content(
-        model='gemini-2.0-flash-001',
-        contents=messages,
-        config=types.GenerateContentConfig(
-            tools=[available_functions], system_instruction=system_prompt
-        ),
-    )
-    if response.function_calls:
-        function_call_part = response.function_calls[0]
-        function_call_result = call_function(function_call_part, verbose)
-        try:
-            function_response = function_call_result.parts[0].function_response.response
-        except Exception as e:
-            raise RuntimeError("Failed to retrieve function response") from e
-        if verbose:
-            print(f"\nFunction call response: {function_response}")
-    else:
-        print("\nResponse:")
-        print(response.text)
+    for _ in range(20):
+        response = client.models.generate_content(
+            model='gemini-2.0-flash-001',
+            contents=messages,
+            config=types.GenerateContentConfig(
+                tools=[available_functions], system_instruction=system_prompt
+            ),
+        )
+
+        for candidate in response.candidates:
+            messages.append(candidate.content)
+
+        if response.function_calls:
+            function_call_part = response.function_calls[0]
+            function_call_result = call_function(function_call_part, verbose)
+            try:
+                function_response = function_call_result.parts[0].function_response.response
+            except Exception as e:
+                raise RuntimeError("Failed to retrieve function response") from e
+            if verbose:
+                print(f"\nFunction call response: {function_response}")
+            messages.append(
+                types.Content(
+                    role="model",
+                    parts=[types.Part(text=function_response.get("result", json.dumps(function_response)))]
+                )
+            )
+        else:
+            if response.text:
+                print("\nResponse:")
+                print(response.text)
+                break
 
     if verbose:
         print(f"\nUser prompt: {user_prompt}")
